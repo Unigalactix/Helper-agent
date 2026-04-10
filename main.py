@@ -53,7 +53,7 @@ from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
-# Load .env before importing ai.py (which calls genai.configure at import time)
+# Load .env before importing ai.py (which instantiates the genai.Client at import time)
 load_dotenv()
 
 from ai import analyse_images  # noqa: E402  (must come after load_dotenv)

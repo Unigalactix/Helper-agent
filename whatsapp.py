@@ -63,7 +63,7 @@ def get_media_url(media_id: str) -> str:
     response.raise_for_status()
 
     media_url: str = response.json()["url"]
-    logger.debug("Resolved media_id=%s → %s", media_id, media_url)
+    logger.debug("Resolved media_id=%s → URL obtained", media_id)
     return media_url
 
 
@@ -137,5 +137,4 @@ def send_text_message(to: str, body: str) -> dict:
     response.raise_for_status()
 
     result: dict = response.json()
-    logger.debug("Graph API response: %s", result)
     return result

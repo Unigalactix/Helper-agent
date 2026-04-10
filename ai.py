@@ -4,7 +4,7 @@ ai.py
 Google Gemini multimodal integration for the WhatsApp-Gemini webhook service.
 
 Responsibilities:
-  1. Configure the Gemini SDK once at module import time.
+  1. Instantiate a ``google.genai.Client`` once at module import time.
   2. Expose ``analyse_images`` – the single public entry point that accepts one
      or more raw image byte-strings, builds a multimodal prompt, and returns the
      model's text response.
@@ -17,28 +17,29 @@ Notes
 * The module uses ``gemini-1.5-pro`` as specified in the requirements.  This
   model supports up to 16 images per request, which is well above the practical
   multi-image batching window used by this service.
-* Content safety: if Gemini blocks a response due to safety filters the
-  ``response.text`` attribute raises ``ValueError``.  This module catches that
-  and returns a user-friendly fallback message instead of crashing.
-* Timeout: ``google-generativeai`` does not expose a per-call HTTP timeout in
-  the same way as ``requests``.  A ``google.api_core.exceptions.DeadlineExceeded``
-  exception is caught and surfaced as an error string.
+* SDK: ``google-genai`` is the current, officially supported Google Gen AI SDK
+  (``google-generativeai`` reached end-of-life November 30, 2025).
+* Content safety: if Gemini blocks a response due to safety filters,
+  ``response.text`` raises ``ValueError``.  This module catches that and
+  returns a user-friendly fallback message instead of crashing.
+* Timeout: a ``google.genai.errors.DeadlineExceeded`` (or the underlying
+  ``google.api_core`` variant) is caught and surfaced as an error string.
 """
 
 import logging
 import os
 
-import google.generativeai as genai
-from google.api_core import exceptions as google_exceptions
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types as genai_types
 
 # ── Module-level logger ───────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 
-# ── One-time SDK configuration ────────────────────────────────────────────────
-# ``genai.configure`` only needs to be called once; placing it at module level
-# ensures it runs when the module is first imported and is not repeated on every
-# request.
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+# ── One-time client instantiation ────────────────────────────────────────────
+# ``genai.Client`` is constructed once at module import time and reused for
+# every request, avoiding the overhead of re-authenticating on each call.
+_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 # ── Model selection ───────────────────────────────────────────────────────────
 # gemini-1.5-pro supports text + image (multimodal) input natively.
@@ -93,20 +94,26 @@ def analyse_images(image_bytes_list: list[bytes], mime_type: str = "image/jpeg")
         "Sending %d image(s) to Gemini model=%s", len(image_bytes_list), _MODEL_NAME
     )
 
-    # Build the content parts list:
-    #   [ system_prompt_text, image_part_1, image_part_2, … ]
-    # Gemini interprets the leading text as a system-level instruction.
-    content_parts: list = [SYSTEM_PROMPT]
+    # Build the contents list accepted by the new SDK:
+    #   [ system_prompt_part, inline_image_part_1, inline_image_part_2, … ]
+    # The leading text part acts as a system-level instruction prepended to
+    # every generation request.
+    contents: list[genai_types.Part] = [genai_types.Part.from_text(text=SYSTEM_PROMPT)]
     for idx, img_bytes in enumerate(image_bytes_list):
-        content_parts.append({"mime_type": mime_type, "data": img_bytes})
-        logger.debug("Added image %d/%d (%d bytes)", idx + 1, len(image_bytes_list), len(img_bytes))
-
-    model = genai.GenerativeModel(_MODEL_NAME)
+        contents.append(
+            genai_types.Part.from_bytes(data=img_bytes, mime_type=mime_type)
+        )
+        logger.debug(
+            "Added image %d/%d (%d bytes)", idx + 1, len(image_bytes_list), len(img_bytes)
+        )
 
     try:
-        response = model.generate_content(content_parts)
+        response = _client.models.generate_content(
+            model=_MODEL_NAME,
+            contents=contents,
+        )
         # ``response.text`` raises ValueError if the response was blocked by
-        # safety filters (prompt_feedback.block_reason is set).
+        # safety filters (finish_reason is SAFETY or prompt_feedback is set).
         result: str = response.text
         logger.info("Gemini returned %d characters", len(result))
         return result
@@ -119,14 +126,14 @@ def analyse_images(image_bytes_list: list[bytes], mime_type: str = "image/jpeg")
             "safety restrictions. Please try a different image."
         )
 
-    except google_exceptions.DeadlineExceeded as exc:
+    except genai_errors.DeadlineExceeded as exc:
         logger.error("Gemini API request timed out: %s", exc)
         return (
             "I'm sorry, the image analysis timed out. "
             "Please try again in a moment."
         )
 
-    except google_exceptions.GoogleAPIError as exc:
+    except genai_errors.APIError as exc:
         logger.error("Gemini API error: %s", exc)
         return (
             "I'm sorry, an error occurred while analysing your image. "
