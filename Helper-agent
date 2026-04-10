@@ -51,6 +51,34 @@ Here is a comprehensive, technical specification designed specifically to be cop
     * Pass the `SYSTEM_PROMPT` and the image dictionary to `model.generate_content()`.
 5.  Extract the `response.text` string. Include error handling for flagged content or API timeouts.
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+To update your architecture to the absolute bleeding edge, you will want to target the **Gemini 3.1** series, which is the newest generation available as of early 2026. 
+
+Google has been actively deprecating the older 1.5 and 2.0 lines to make way for these highly upgraded, agentic models. 
+
+### Recommended Latest Models
+Depending on your priority for this WhatsApp service, you should instruct your coding agent to use one of the following model strings:
+
+* **`gemini-3.1-pro-preview`**: The current flagship model. It features heavily upgraded reasoning and multimodal capabilities. This is the best choice if your pre-loaded prompt involves complex, detailed analysis of the uploaded photos.
+* **`gemini-3-flash`**: The current standard for speed and efficiency. It delivers excellent multimodal intelligence but with significantly lower latency, making it ideal for a snappy, real-time messaging bot.
+* **`gemini-3.1-flash-lite-preview`**: The newest cost-efficient model released just last month, designed for extremely high-volume workloads at the lowest possible cost.
+
+---
+
+### Instructions to Update Your Coding Agent
+You only need to modify **PHASE 4** of the previous system prompt. You can copy and paste this updated block directly to your agent:
+
+**UPDATED PHASE 4: Gemini Multimodal Processing**
+**Agent Instructions:**
+1.  Initialize the Gemini client using `genai.configure(api_key=os.environ["GEMINI_API_KEY"])`.
+2.  Instantiate the latest flagship model using `model = genai.GenerativeModel('gemini-3.1-pro-preview')` *(Note: developer can substitute with 'gemini-3-flash' to optimize for speed).*
+3.  Create a system prompt variable (e.g., `SYSTEM_PROMPT = "Your instructions here"`).
+4.  Construct the payload for Gemini:
+    * Format the downloaded image binary as a dictionary: `{"mime_type": "image/jpeg", "data": image_bytes}`.
+    * Pass the `SYSTEM_PROMPT` and the image dictionary to `model.generate_content()`.
+5.  Extract the `response.text` string. Include error handling for flagged content or API timeouts.
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 ### PHASE 5: WhatsApp Outbound Messaging
 **Agent Instructions:**
 1.  Write a function to send the Gemini response back to the user.
