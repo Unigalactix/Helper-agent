@@ -1,0 +1,85 @@
+Here is a comprehensive, technical specification designed specifically to be copy-pasted directly into your coding agent. It dictates the architecture, tech stack, and step-by-step implementation required to build this service.
+
+***
+
+### 🤖 SYSTEM PROMPT & ARCHITECTURE SPECIFICATION FOR AI AGENT
+
+**Primary Objective:** Develop a webhook-based microservice that acts as a bridge between the Meta WhatsApp Business API and the Google Gemini API. The service must receive images via WhatsApp, process them through a Gemini multimodal model using a predefined system prompt, and return the generated text as a WhatsApp reply.
+
+**Recommended Tech Stack:**
+* **Language:** Python 3.10+
+* **Web Framework:** FastAPI (for asynchronous handling and rapid webhook processing)
+* **AI SDK:** `google-generativeai` (Gemini SDK)
+* **Deployment Target:** Serverless compute (e.g., Azure Functions or Google Cloud Run)
+* **State Management (Optional but recommended for multi-image batching):** Redis or temporary in-memory caching.
+
+---
+
+### PHASE 1: Initialization & Webhook Verification
+**Agent Instructions:**
+1.  Initialize a new Python project and generate a `requirements.txt` containing `fastapi`, `uvicorn`, `requests`, `google-generativeai`, and `python-dotenv`.
+2.  Create a standard FastAPI application structure.
+3.  **Implement Webhook Verification:** Meta requires a GET endpoint for webhook validation. 
+    * Create a `GET /webhook` route.
+    * Extract the query parameters: `hub.mode`, `hub.verify_token`, and `hub.challenge`.
+    * Validate the `hub.verify_token` against a local environment variable (`WHATSAPP_VERIFY_TOKEN`).
+    * If valid, return the integer value of `hub.challenge` as a plaintext response (Status 200).
+
+### PHASE 2: Ingestion & Payload Parsing
+**Agent Instructions:**
+1.  **Implement Webhook Receiver:** Create a `POST /webhook` route to accept incoming WhatsApp messages.
+2.  **Parse Payload:** Extract the following from the standard Meta WhatsApp webhook JSON payload:
+    * Sender Phone Number (`entry[0].changes[0].value.messages[0].from`)
+    * Message Type (`entry[0].changes[0].value.messages[0].type`)
+    * Media ID (If type is `image`, extract `entry[0].changes[0].value.messages[0].image.id`)
+3.  **Acknowledge Quickly:** Return a `200 OK` response immediately after parsing to prevent Meta from retrying the webhook delivery. Process the image asynchronously (using FastAPI's `BackgroundTasks` or a message queue).
+
+### PHASE 3: Media Retrieval via Graph API
+**Agent Instructions:**
+1.  Write a function to download the image from Meta's servers.
+2.  **Step A (Get URL):** Make a GET request to `https://graph.facebook.com/v18.0/{media_id}` using the `WHATSAPP_ACCESS_TOKEN` in the Authorization header (Bearer token). Extract the `url` from the JSON response.
+3.  **Step B (Download Binary):** Make a GET request to the retrieved `url`, again using the `WHATSAPP_ACCESS_TOKEN`.
+4.  Save the binary data into memory (e.g., `io.BytesIO`) or to a temporary directory. Do not store files permanently.
+
+### PHASE 4: Gemini Multimodal Processing
+**Agent Instructions:**
+1.  Initialize the Gemini client using `genai.configure(api_key=os.environ["GEMINI_API_KEY"])`.
+2.  Instantiate the `gemini-1.5-pro` model.
+3.  Create a system prompt variable (e.g., `SYSTEM_PROMPT = "Your instructions here"`).
+4.  Construct the payload for Gemini:
+    * Format the downloaded image binary as a dictionary: `{"mime_type": "image/jpeg", "data": image_bytes}`.
+    * Pass the `SYSTEM_PROMPT` and the image dictionary to `model.generate_content()`.
+5.  Extract the `response.text` string. Include error handling for flagged content or API timeouts.
+
+### PHASE 5: WhatsApp Outbound Messaging
+**Agent Instructions:**
+1.  Write a function to send the Gemini response back to the user.
+2.  Make a POST request to `https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages`.
+3.  Include the `WHATSAPP_ACCESS_TOKEN` in the headers.
+4.  Construct the JSON payload:
+    ```json
+    {
+      "messaging_product": "whatsapp",
+      "to": "{sender_phone_number}",
+      "type": "text",
+      "text": {
+        "body": "{gemini_response_text}"
+      }
+    }
+    ```
+
+### PHASE 6: Advanced Multi-Image Handling (Edge Case)
+**Agent Instructions (Context):**
+When a user uploads 3 photos at once on WhatsApp, Meta fires 3 separate webhooks almost simultaneously. 
+* **Implementation Requirement:** To process them as a single prompt, implement a debouncing/caching mechanism.
+* When an image arrives, store its Media ID in a cache keyed by the user's phone number with a 5-second TTL.
+* If another image arrives within 5 seconds, append it to the cache and reset the timer.
+* Once the timer expires without new images, trigger Phase 4, sending *all* cached images in a single array to Gemini. 
+* *(If multi-image batching is not required, default to processing each image in complete isolation).*
+
+### PHASE 7: Deliverables Required from Agent
+1.  `main.py` containing the FastAPI application, routes, and background task logic.
+2.  `whatsapp.py` containing API calls to Meta (Media download and Message sending).
+3.  `ai.py` containing the Gemini API integration.
+4.  `.env.example` defining required variables: `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `GEMINI_API_KEY`.
+5.  `requirements.txt`.
